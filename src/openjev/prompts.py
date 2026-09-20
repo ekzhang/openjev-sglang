@@ -12,6 +12,8 @@ from jinja2 import TemplateError
 from .config import MAX_ANSWERS
 from .models import ChoiceQuestion, Content, NoulQuestion, Question, SystemOneRequest
 
+DEFAULT_INSTRUCTIONS = "Answer using the options below."
+
 
 def serialize(value: Content) -> str:
     return value if isinstance(value, str) else orjson.dumps(value).decode()
@@ -120,7 +122,12 @@ class PromptCompiler:
         for key, question in request.questions.items():
             choices = options(question)
             labels = self.labels[: len(choices)]
-            lines = [f"Question: {serialize(question.instructions)}", "", "Options:"]
+            instructions = (
+                serialize(question.instructions)
+                if question.instructions is not None
+                else DEFAULT_INSTRUCTIONS
+            )
+            lines = [f"Question: {instructions}", "", "Options:"]
             for (option, description), (label, _) in zip(choices, labels, strict=True):
                 # Keys are hidden unless a null description needs the name as its meaning.
                 # Indent multiline descriptions to keep each generated label distinct.

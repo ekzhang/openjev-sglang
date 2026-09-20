@@ -35,9 +35,10 @@ SYSTEMONE_DESCRIPTION = """Evaluate **1–64 independent questions** against one
 
 ### State and instructions
 
-Both accept text, a JSON object, or a JSON array. For a conversation, pass a list
-of text chat messages with `role` and `content`, or an object containing only
-`messages`. Supported roles are `system`, `user`, `assistant`, and `tool`.
+`instructions` is optional per question; omitting it evaluates the options against
+the shared `state` alone. Both fields accept text, a JSON object, or a JSON array.
+For a conversation, pass a list of text chat messages with `role` and `content`, or
+an object containing only `messages`. Supported roles are `system`, `user`, `assistant`, and `tool`.
 Other structured state is evaluated as JSON. Image, audio, and video content are
 not supported. Each question is evaluated independently, without seeing other
 questions or their answers.

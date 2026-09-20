@@ -18,7 +18,9 @@ class NoulCriteria(StrictModel):
 
 class NoulQuestion(StrictModel):
     type: Literal["noul"]
-    instructions: Content = Field(description="The yes/no question or evaluation instructions.")
+    instructions: Content | None = Field(
+        default=None, description="The yes/no question or evaluation instructions."
+    )
     criteria: NoulCriteria = Field(
         default_factory=NoulCriteria, description="Optional definitions of true and false."
     )
@@ -26,7 +28,9 @@ class NoulQuestion(StrictModel):
 
 class ChoiceQuestion(StrictModel):
     type: Literal["choice"]
-    instructions: Content = Field(description="Question or instructions for choosing one option.")
+    instructions: Content | None = Field(
+        default=None, description="Question or instructions for choosing one option."
+    )
     criteria: dict[str, str | None] = Field(
         min_length=2,
         max_length=MAX_ANSWERS,
@@ -39,7 +43,9 @@ class ChoiceQuestion(StrictModel):
 
 class ScoreQuestion(StrictModel):
     type: Literal["score"]
-    instructions: Content = Field(description="Question or instructions for applying the rubric.")
+    instructions: Content | None = Field(
+        default=None, description="Question or instructions for applying the rubric."
+    )
     criteria: list[str] = Field(
         min_length=2,
         max_length=MAX_ANSWERS,

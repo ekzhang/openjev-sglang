@@ -33,7 +33,10 @@ class EvaluationService:
         self.active = 0
 
     async def evaluate(self, request: SystemOneRequest) -> Evaluation:
-        if request.model not in {self.settings.served_model_name, self.settings.model_alias}:
+        # Any "jev-*" name is accepted as an alias, so pinning a tuned version
+        # (e.g. "jev-1.13.0") is a drop-in swap, not just "jev-latest".
+        known = request.model in {self.settings.served_model_name, self.settings.model_alias}
+        if not known and not request.model.startswith("jev-"):
             raise RequestError(f"Unknown model: {request.model}")
         # No await between checking and reserving capacity on this event loop.
         if self.active >= self.settings.max_concurrent_requests:

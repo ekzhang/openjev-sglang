@@ -3,7 +3,7 @@ import copy
 import pytest
 
 from openjev.models import SystemOneRequest
-from openjev.prompts import state_messages
+from openjev.prompts import DEFAULT_INSTRUCTIONS, state_messages
 
 
 def test_original_messages_are_preserved_and_questions_are_independent(compiler, payload):
@@ -84,6 +84,13 @@ def test_only_null_descriptions_fall_back_to_option_names(compiler, payload):
     prompt = compiler.tokenizer.decode(branch.input_ids)
     assert "A: Visible fallback\nB: Visible description\nC: " in prompt
     assert "Hidden key" not in prompt and "Also hidden" not in prompt
+
+
+def test_missing_instructions_falls_back_to_default(compiler, payload):
+    del payload["questions"]["yes"]["instructions"]
+    branch = compiler.prepare(SystemOneRequest.model_validate(payload)).branches[0]
+    prompt = compiler.tokenizer.decode(branch.input_ids)
+    assert f"Question: {DEFAULT_INSTRUCTIONS}" in prompt
 
 
 @pytest.mark.parametrize("content", [[{"type": "image_url", "image_url": "http://x"}], 12])

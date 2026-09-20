@@ -43,6 +43,15 @@ async def test_public_model_name_in_catalogue_requests_and_headers(api, payload)
     assert response.headers["x-openjev-model"] == payload["model"]
 
 
+@pytest.mark.parametrize("model", ["jev-1.13.0", "jev-anything"])
+async def test_pinned_jev_model_names_are_accepted_as_aliases(api, payload, model):
+    client, _, _ = api
+    payload["model"] = model
+    response = await client.post("/v1/systemone", json=payload)
+    assert response.status_code == 200
+    assert response.json()["model"] == model
+
+
 @pytest.mark.parametrize("count,status", [(1, 422), (2, 200), (64, 200), (65, 422)])
 async def test_answer_limits(api, count, status):
     client, calls, _ = api
@@ -93,6 +102,14 @@ async def test_choice_accepts_nullable_descriptions(api, payload, description):
     response = await client.post("/v1/systemone", json=payload)
     assert response.status_code == 200
     assert response.json()["answers"]["team"]["probabilities"].keys() == {"billing", "technical"}
+
+
+async def test_question_without_instructions_is_accepted(api, payload):
+    client, calls, _ = api
+    del payload["questions"]["yes"]["instructions"]
+    response = await client.post("/v1/systemone", json=payload)
+    assert response.status_code == 200, response.text
+    assert "yes" in response.json()["answers"]
 
 
 async def test_token_limit_checked_before_prefill(api, payload):
