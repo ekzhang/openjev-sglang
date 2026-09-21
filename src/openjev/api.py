@@ -286,6 +286,7 @@ def create_app(
             "max_input_tokens": settings.max_input_tokens,
             "max_total_input_tokens": settings.max_total_input_tokens,
             "max_concurrent_requests": settings.max_concurrent_requests,
+            "max_images": settings.max_images,
         }
 
     @app.get(

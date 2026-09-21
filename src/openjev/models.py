@@ -286,6 +286,12 @@ class LimitsResponse(StrictModel):
     max_concurrent_requests: int = Field(
         description="Maximum active evaluations per API container. Additional requests return 529."
     )
+    max_images: int = Field(
+        description=(
+            "Maximum images per request's state. 0 means this deployment cannot evaluate "
+            "images; such requests return 422."
+        )
+    )
 
 
 class ErrorDetail(StrictModel):
