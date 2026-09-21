@@ -1,4 +1,5 @@
 from PIL import Image, ImageDraw
+
 img = Image.new("RGB", (900, 560), "white")
 d = ImageDraw.Draw(img)
 lines = [

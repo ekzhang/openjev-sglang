@@ -76,27 +76,36 @@ except Exception as exc:  # noqa: BLE001
     body = getattr(exc, "read", lambda: b"")()
     print("REQUEST FAILED:", type(exc).__name__, str(exc)[:200])
     print("body:", body[:1000])
-    raise SystemExit(1)
+    raise SystemExit(1) from exc
+
+def noul_line(name, answer):
+    probability = answer["noul"]
+    return f"  {name:<13} P={probability:.5f} -> {probability > 0.5}"
+
+
+def choice_line(name, answer):
+    ranked = sorted(answer["probabilities"].items(), key=lambda kv: -kv[1])
+    return f"  {name:<13} {answer['choice']}  {dict((k, round(v, 4)) for k, v in ranked)}"
+
 
 print("usage:", data["usage"])
-print("server-timing:", headers.get("server-timing"))
+print("server-timing :", headers.get("server-timing"))
 print("prefix tokens :", headers.get("x-openjev-prefix-tokens"))
 print()
-a = data["answers"]
-print("is_label     : P=%.5f -> %s" % (a["is_label"]["noul"], a["is_label"]["noul"] > 0.5))
-print("has_paid     : P=%.5f -> %s" % (a["has_paid"]["noul"], a["has_paid"]["noul"] > 0.5))
-print("has_signature: P=%.5f -> %s" % (a["has_signature"]["noul"], a["has_signature"]["noul"] > 0.5))
-print("doc_type     :", a["doc_type"]["choice"],
-      {k: round(v, 4) for k, v in sorted(a["doc_type"]["probabilities"].items(), key=lambda x: -x[1])})
-print("total_amount :", a["total_amount"]["choice"],
-      {k: round(v, 4) for k, v in sorted(a["total_amount"]["probabilities"].items(), key=lambda x: -x[1])})
-print("legibility   : score=%.3f" % a["legibility"]["score"], a["legibility"]["legend"])
+answers = data["answers"]
+print(noul_line("is_label:", answers["is_label"]))
+print(noul_line("has_paid:", answers["has_paid"]))
+print(noul_line("has_signature:", answers["has_signature"]))
+print(choice_line("doc_type:", answers["doc_type"]))
+print(choice_line("total_amount:", answers["total_amount"]))
+legibility = answers["legibility"]
+print(f"  {'legibility:':<13} score={legibility['score']:.3f}  {legibility['legend']}")
 print()
 checks = {
-    "recognises a shipping label": a["doc_type"]["choice"] == "shipping_label",
-    "reads the 899.00 total": a["total_amount"]["choice"] == "899",
-    "sees the PAID stamp": a["has_paid"]["noul"] > 0.5,
-    "treats signature line as blank": a["has_signature"]["noul"] < 0.5,
+    "recognises a shipping label": answers["doc_type"]["choice"] == "shipping_label",
+    "reads the 899.00 total": answers["total_amount"]["choice"] == "899",
+    "sees the PAID stamp": answers["has_paid"]["noul"] > 0.5,
+    "treats signature line as blank": answers["has_signature"]["noul"] < 0.5,
 }
 for name, ok in checks.items():
     print(("  PASS  " if ok else "  FAIL  ") + name)

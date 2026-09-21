@@ -64,16 +64,22 @@ except Exception as exc:  # noqa: BLE001 - report the server's own message
     body = getattr(exc, "read", lambda: b"")()
     print("REQUEST FAILED:", type(exc).__name__, str(exc)[:200])
     print("body:", body[:1000])
-    raise SystemExit(1)
+    raise SystemExit(1) from exc
 
 meta = data["meta_info"]
-print("prompt_tokens:", meta.get("prompt_tokens"), "completion_tokens:", meta.get("completion_tokens"))
+print(
+    "prompt_tokens:", meta.get("prompt_tokens"),
+    "completion_tokens:", meta.get("completion_tokens"),
+)
 entries = meta.get("output_token_ids_logprobs")
 if entries is None:
     print("FAIL: no output_token_ids_logprobs. meta_info keys:", sorted(meta))
     raise SystemExit(1)
 by_id = {entry[1]: entry[0] for entry in entries[0]}
-probs = {c: by_id.get(i) for c, i in zip("ABCD", label_ids)}
-print("selected-token logprobs:", {k: (round(v, 4) if v is not None else None) for k, v in probs.items()})
+probs = {c: by_id.get(i) for c, i in zip("ABCD", label_ids, strict=True)}
+print(
+    "selected-token logprobs:",
+    {k: (round(v, 4) if v is not None else None) for k, v in probs.items()},
+)
 print("span:", len(meta["input_token_logprobs"]) if meta.get("input_token_logprobs") else "n/a")
 print("RESULT: token_ids_logprob + image_data WORKS")
