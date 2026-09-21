@@ -1,3 +1,4 @@
+import json
 import math
 from dataclasses import replace
 
@@ -5,6 +6,12 @@ import httpx
 import pytest
 
 from openjev.api import create_app
+from openjev.backend import SGLangClient
+from openjev.config import Settings
+from openjev.service import EvaluationService
+
+# FakeTokenizer piece ids (see tests/conftest.py).
+_VISION_START, _IMAGE_PAD, _VISION_END = 50000, 50001, 50002
 
 
 async def test_full_request_prefills_then_branches(api, payload):
@@ -185,10 +192,101 @@ async def test_missing_backend_cache_counts_are_not_reported_as_zero(api, payloa
     client, _, service = api
     generate = service.backend.generate
 
-    async def without_cache_counts(*args):
-        return replace(await generate(*args), cached_tokens=None)
+    async def without_cache_counts(*args, **kwargs):
+        return replace(await generate(*args, **kwargs), cached_tokens=None)
 
     monkeypatch.setattr(service.backend, "generate", without_cache_counts)
     response = await client.post("/v1/systemone", json=payload)
     assert response.status_code == 200
     assert "x-openjev-cached-tokens" not in response.headers
+
+
+def _image_state(*urls):
+    return [
+        {
+            "role": "user",
+            "content": [
+                *({"type": "image_url", "image_url": {"url": url}} for url in urls),
+                {"type": "text", "text": "What is shown?"},
+            ],
+        }
+    ]
+
+
+@pytest.fixture
+async def vision_api(vision_compiler):
+    """The same mock SGLang transport, backed by a vision-capable tokenizer."""
+    calls = []
+
+    async def handler(request):
+        if request.url.path == "/health":
+            return httpx.Response(200, json={})
+        data = json.loads(request.content)
+        calls.append(data)
+        meta = {
+            "prompt_tokens": len(data["input_ids"]),
+            "completion_tokens": 1,
+            "cached_tokens": 0,
+        }
+        labels = data.get("token_ids_logprob")
+        if labels and labels != [0]:
+            meta["output_token_ids_logprobs"] = [
+                [[-float(i + 1), label, None] for i, label in enumerate(labels)]
+            ]
+        return httpx.Response(200, json={"text": "unused", "meta_info": meta})
+
+    settings = Settings(max_images=4)
+    async with httpx.AsyncClient(
+        base_url="http://sglang", transport=httpx.MockTransport(handler)
+    ) as client:
+        service = EvaluationService(
+            settings, vision_compiler, SGLangClient(settings, client)
+        )
+        app = create_app(settings, service=service)
+        async with app.router.lifespan_context(app):
+            async with httpx.AsyncClient(
+                base_url="http://test", transport=httpx.ASGITransport(app=app)
+            ) as client:
+                yield client, calls, service
+
+
+async def test_image_state_reaches_the_backend_on_every_call(vision_api, payload):
+    client, calls, _ = vision_api
+    payload["state"] = _image_state("http://example.com/one.png")
+    response = await client.post("/v1/systemone", json=payload)
+    assert response.status_code == 200, response.text
+    # One warm-up plus one call per question, each carrying the image.
+    assert len(calls) == 4
+    for call in calls:
+        assert call["image_data"] == ["http://example.com/one.png"]
+        # The image placeholder must be present exactly once per image, otherwise
+        # SGLang drops the image without failing.
+        ids = call["input_ids"]
+        assert ids.count(_IMAGE_PAD) == 1
+        assert ids.count(_VISION_START) == 1
+        assert ids.count(_VISION_END) == 1
+    # Text-only requests must not grow an image_data field.
+    plain = await client.post("/v1/systemone", json={**payload, "state": "no image here"})
+    assert plain.status_code == 200
+    assert all("image_data" not in call for call in calls[4:])
+
+
+async def test_second_image_gets_a_second_placeholder(vision_api, payload):
+    client, calls, _ = vision_api
+    payload["state"] = _image_state("http://example.com/a.png", "http://example.com/b.png")
+    response = await client.post("/v1/systemone", json=payload)
+    assert response.status_code == 200, response.text
+    for call in calls:
+        assert call["image_data"] == [
+            "http://example.com/a.png",
+            "http://example.com/b.png",
+        ]
+        assert call["input_ids"].count(_IMAGE_PAD) == 2
+
+
+async def test_image_state_is_rejected_by_a_text_only_deployment(api, payload):
+    client, _, _ = api
+    payload["state"] = _image_state("http://example.com/one.png")
+    response = await client.post("/v1/systemone", json=payload)
+    assert response.status_code == 422
+    assert "cannot evaluate images" in response.json()["error"]["message"]

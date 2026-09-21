@@ -76,4 +76,27 @@ PROFILES = {
         attention_backend="flashinfer",
         kv_cache_dtype="fp8_e4m3",
     ),
+    # Same host, vision checkpoint: this is what makes image state work.
+    #
+    #   * No --language-only. That flag skips the vision tower, and SGLang rejects
+    #     image input outright with "Multimodal inputs are not supported when
+    #     --language-model-only is set; the encoder is not loaded."
+    #   * Qwen3VLMoeForConditionalGeneration, AWQ 4-bit (group_size 128), so the
+    #     30B/3B-active text tower plus the 27-layer vision tower fit a 24 GB card.
+    #   * Lower static fraction than the text profile: the vision tower, the image
+    #     embeddings and the much longer image-expanded prefixes all need room.
+    "ada-4090-vl": ModelProfile(
+        model="QuantTrio/Qwen3-VL-30B-A3B-Instruct-AWQ",
+        served_model_name="Qwen/Qwen3-VL-30B-A3B-Instruct",
+        revision="",
+        image=SGLANG_IMAGE,
+        backend_python="python3",
+        memory_mib=32768,
+        app_name="openjev-sglang-4090-vl",
+        backend_args=(),
+        moe_runner_backend="auto",
+        mem_fraction_static=0.75,
+        attention_backend="flashinfer",
+        kv_cache_dtype="fp8_e4m3",
+    ),
 }

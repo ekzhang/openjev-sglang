@@ -2,7 +2,7 @@
 
 import itertools
 import string
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 from uuid import uuid4
 
@@ -10,7 +10,14 @@ import orjson
 from jinja2 import TemplateError
 
 from .config import MAX_ANSWERS
-from .models import ChoiceQuestion, Content, NoulQuestion, Question, SystemOneRequest
+from .models import (
+    ChoiceQuestion,
+    Content,
+    NoulQuestion,
+    Question,
+    SystemOneRequest,
+    image_urls,
+)
 
 DEFAULT_INSTRUCTIONS = "Answer using the options below."
 
@@ -19,8 +26,12 @@ def serialize(value: Content) -> str:
     return value if isinstance(value, str) else orjson.dumps(value).decode()
 
 
-def state_messages(state: Content) -> list[dict[str, Any]]:
-    """Recognize chat transcripts; preserve other JSON objects as state in their entirety."""
+def state_messages(state: Content) -> tuple[list[dict[str, Any]], list[str]]:
+    """Recognize chat transcripts; preserve other JSON objects as state in their entirety.
+
+    Returns the messages plus every image URL they carry, in the order the chat
+    template will emit `<|vision_start|><|image_pad|><|vision_end|>` for them.
+    """
     candidate = state
     # Only unwrap an exact messages envelope; don't discard sibling state metadata.
     if isinstance(state, dict) and set(state) == {"messages"}:
@@ -30,22 +41,37 @@ def state_messages(state: Content) -> list[dict[str, Any]]:
         and candidate
         and all(isinstance(item, dict) and "role" in item for item in candidate)
     ):
+        images: list[str] = []
         for item in candidate:
             if item["role"] not in {"system", "user", "assistant", "tool"}:
                 raise ValueError("Chat state has an unsupported message role")
             content = item.get("content")
             if isinstance(content, list):
-                if not all(
-                    isinstance(part, dict)
-                    and part.get("type") == "text"
-                    and isinstance(part.get("text"), str)
-                    for part in content
-                ):
-                    raise ValueError("Jev state supports text content only")
+                for part in content:
+                    if not isinstance(part, dict):
+                        raise ValueError("Chat content parts must be objects")
+                    kind = part.get("type")
+                    if kind == "text":
+                        if not isinstance(part.get("text"), str):
+                            raise ValueError("Chat text parts need a string 'text'")
+                    elif kind == "image_url":
+                        urls = image_urls([part])
+                        if not urls:
+                            raise ValueError(
+                                "Chat image parts need {'image_url': {'url': ...}}"
+                            )
+                        if item["role"] != "user":
+                            raise ValueError("Images are only supported in user messages")
+                        images.extend(urls)
+                    else:
+                        raise ValueError(
+                            f"Unsupported chat content type: {kind!r}. "
+                            "Jev state supports text and image_url parts."
+                        )
             elif content is not None and not isinstance(content, str):
-                raise ValueError("Chat content must be text, text parts, or null")
-        return candidate
-    return [{"role": "user", "content": serialize(state)}]
+                raise ValueError("Chat content must be text, text parts, image parts, or null")
+        return candidate, images
+    return [{"role": "user", "content": serialize(state)}], []
 
 
 def options(question: Question) -> list[tuple[str, str | None]]:
@@ -69,11 +95,15 @@ class Branch:
 class PreparedRequest:
     prefix_ids: list[int]
     branches: list[Branch]
+    # Image URLs shared by the warm-up and every branch. Empty for text-only requests,
+    # which keeps those requests on exactly the previous code path.
+    image_data: list[str] = field(default_factory=list)
 
 
 class PromptCompiler:
-    def __init__(self, tokenizer: Any):
+    def __init__(self, tokenizer: Any, max_images: int = 0):
         self.tokenizer = tokenizer
+        self.max_images = max_images
         self.labels: list[tuple[str, int]] = []
         # Qwen numbers >=10 are multi-token. Verified alphabetic labels keep each
         # option at exactly one vocabulary position, even with 64 choices.
@@ -92,9 +122,38 @@ class PromptCompiler:
         if len(self.labels) < MAX_ANSWERS:
             raise ValueError(f"Tokenizer needs {MAX_ANSWERS} distinct single-token answer labels")
 
+    def _vision_token(self, text: str) -> int | None:
+        ids = self.tokenizer.encode(text, add_special_tokens=False)
+        return ids[0] if len(ids) == 1 else None
+
+    def _check_vision_support(self, image_data: list[str]) -> None:
+        """Fail loudly on a text-only checkpoint instead of silently dropping images.
+
+        SGLang refuses image input on a model without a vision tower, but the clearer
+        diagnosis is that this deployment cannot serve images at all.
+        """
+        missing = [
+            name
+            for name in ("<|vision_start|>", "<|image_pad|>", "<|vision_end|>")
+            if self._vision_token(name) is None
+        ]
+        if missing:
+            raise ValueError(
+                f"This model cannot evaluate images: its tokenizer has no {', '.join(missing)}. "
+                "Serve a vision checkpoint (for example Qwen3-VL) to use image state."
+            )
+
     def prepare(self, request: SystemOneRequest) -> PreparedRequest:
         marker = f"OPENJEV_QUESTION_{uuid4().hex}"
-        messages = state_messages(request.state)
+        messages, image_data = state_messages(request.state)
+        if image_data:
+            # Diagnose an incapable checkpoint before a deployment limit: "this model
+            # has no vision tower" is the more actionable message of the two.
+            self._check_vision_support(image_data)
+        if len(image_data) > self.max_images:
+            raise ValueError(
+                f"Request has {len(image_data)} images; this deployment allows {self.max_images}"
+            )
         messages = [
             *messages,
             {
@@ -146,4 +205,6 @@ class PromptCompiler:
                     option_keys=[key for key, _ in choices],
                 )
             )
-        return PreparedRequest(prefix_ids=prefix_ids, branches=branches)
+        return PreparedRequest(
+            prefix_ids=prefix_ids, branches=branches, image_data=image_data
+        )

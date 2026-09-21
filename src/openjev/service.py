@@ -68,11 +68,17 @@ class EvaluationService:
 
         # Barrier: cache the common prefix completely before submitting any branch.
         # The warm-up token is discarded; it is never appended to the branches.
+        # Images ride along on the warm-up too, so the radix prefix it caches is the
+        # one the branches actually reuse.
         prepared_at = time.perf_counter()
-        warmup = await self.backend.generate(prepared.prefix_ids)
+        warmup = await self.backend.generate(prepared.prefix_ids, image_data=prepared.image_data)
         warmed_at = time.perf_counter()
         tasks = [
-            asyncio.create_task(self.backend.generate(branch.input_ids, branch.label_ids))
+            asyncio.create_task(
+                self.backend.generate(
+                    branch.input_ids, branch.label_ids, image_data=prepared.image_data
+                )
+            )
             for branch in prepared.branches
         ]
         try:

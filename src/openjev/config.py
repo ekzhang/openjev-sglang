@@ -12,7 +12,7 @@ from .profiles import PROFILES
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="OPENJEV_", extra="ignore")
 
-    profile: Literal["qwen36", "ada-4090-awq"] = "qwen36"
+    profile: Literal["qwen36", "ada-4090-awq", "ada-4090-vl"] = "qwen36"
     model: str = DEFAULT_MODEL
     served_model_name: str = Field(default="Qwen/Qwen3.6-35B-A3B", min_length=1)
     revision: str | None = None
@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     max_total_input_tokens: int = Field(default=262144, gt=0)
     max_concurrent_requests: int = Field(default=16, gt=0)
     max_concurrent_branches: int = Field(default=64, gt=0)
+    # Images attached to one request's state. 0 disables image state entirely, which
+    # is the right default for the text-only deployments in PROFILES.
+    max_images: int = Field(default=0, ge=0, le=16)
     request_timeout: float = Field(default=120, gt=0)
     startup_timeout: float = Field(default=1200, gt=0)
     temperature: float = Field(default=1.0, gt=0, allow_inf_nan=False)

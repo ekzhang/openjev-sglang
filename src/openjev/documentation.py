@@ -37,11 +37,32 @@ SYSTEMONE_DESCRIPTION = """Evaluate **1–64 independent questions** against one
 
 `instructions` is optional per question; omitting it evaluates the options against
 the shared `state` alone. Both fields accept text, a JSON object, or a JSON array.
-For a conversation, pass a list of text chat messages with `role` and `content`, or
-an object containing only `messages`. Supported roles are `system`, `user`, `assistant`, and `tool`.
-Other structured state is evaluated as JSON. Image, audio, and video content are
+For a conversation, pass a list of chat messages with `role` and `content`, or an
+object containing only `messages`. Supported roles are `system`, `user`, `assistant`,
+and `tool`. Other structured state is evaluated as JSON. Audio and video content are
 not supported. Each question is evaluated independently, without seeing other
 questions or their answers.
+
+#### Images
+
+A `user` message's `content` may be a list of parts, mixing text and images in the
+OpenAI image shape:
+
+```json
+{"role": "user", "content": [
+  {"type": "text", "text": "Is the signature present and legible?"},
+  {"type": "image_url", "image_url": {"url": "https://example.com/scan.png"}}
+]}
+```
+
+Each part becomes exactly one position in the prompt, so `text` and image parts can be
+interleaved to describe several pictures. A `url` may be an `http(s)://` URL or a
+`data:image/...;base64,...` payload. Images belong to the request's state, are shared
+by every question, and count toward the same token budget as text.
+
+Image state requires a **vision checkpoint** (for example Qwen3-VL) and a positive
+image allowance. A text-only deployment answers **422** saying the model cannot
+evaluate images.
 
 ### Response and usage
 

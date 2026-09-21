@@ -111,7 +111,10 @@ def create_app(
             ) as client:
                 backend = SGLangClient(settings, client)
                 await wait_ready(backend, process, settings.startup_timeout)
-                compiler = PromptCompiler(await asyncio.to_thread(load_tokenizer, settings))
+                compiler = PromptCompiler(
+                    await asyncio.to_thread(load_tokenizer, settings),
+                    max_images=settings.max_images,
+                )
                 app.state.service = EvaluationService(settings, compiler, backend)
                 app.state.startup_seconds = round(time.monotonic() - started, 2)
                 yield
