@@ -18,7 +18,7 @@ def test_original_messages_are_preserved_and_questions_are_independent(compiler,
     request = SystemOneRequest.model_validate(payload)
     prepared = compiler.prepare(request)
     assert state == original
-    assert state_messages(state) == original
+    assert state_messages(state) == (original, [])
     prefix = compiler.tokenizer.decode(prepared.prefix_ids)
     assert "Original system instruction" in prefix
     assert "One more question" in prefix
@@ -32,8 +32,10 @@ def test_original_messages_are_preserved_and_questions_are_independent(compiler,
 
 def test_structured_state_siblings_are_not_dropped():
     state = {"messages": [{"role": "user", "content": "Hi"}], "account": {"tier": "pro"}}
-    assert '"tier":"pro"' in state_messages(state)[0]["content"]
-    assert state_messages({"messages": state["messages"]}) == state["messages"]
+    messages, images = state_messages(state)
+    assert '"tier":"pro"' in messages[0]["content"]
+    assert images == []
+    assert state_messages({"messages": state["messages"]}) == (state["messages"], [])
 
 
 def test_question_ids_do_not_enter_the_model(compiler, payload):
@@ -93,10 +95,93 @@ def test_missing_instructions_falls_back_to_default(compiler, payload):
     assert f"Question: {DEFAULT_INSTRUCTIONS}" in prompt
 
 
-@pytest.mark.parametrize("content", [[{"type": "image_url", "image_url": "http://x"}], 12])
-def test_non_text_chat_is_rejected(content):
-    with pytest.raises(ValueError):
+@pytest.mark.parametrize(
+    "content",
+    [
+        12,
+        [{"type": "image_url", "image_url": "http://x"}],  # old flat string form
+        [{"type": "image_url", "image_url": {"url": ""}}],
+        [{"type": "audio_url", "audio_url": {"url": "http://x"}}],
+        [{"type": "text"}],
+        ["not a part"],
+    ],
+)
+def test_malformed_chat_content_is_rejected(content):
+    with pytest.raises((ValueError, TypeError)):
         state_messages([{"role": "user", "content": content}])
+
+
+def test_images_are_only_allowed_on_user_messages():
+    with pytest.raises(ValueError, match="only supported in user messages"):
+        state_messages(
+            [{"role": "system", "content": [{"type": "image_url", "image_url": {"url": "u"}}]}]
+        )
+
+
+def _image_state(*urls):
+    return [
+        {
+            "role": "user",
+            "content": [
+                *(
+                    {"type": "image_url", "image_url": {"url": url}}
+                    for url in urls
+                ),
+                {"type": "text", "text": "What is shown?"},
+            ],
+        }
+    ]
+
+
+def test_state_messages_returns_image_urls_in_order():
+    messages, images = state_messages(_image_state("u1", "u2"))
+    assert images == ["u1", "u2"]
+    assert messages[0]["content"][-1]["text"] == "What is shown?"
+
+
+def test_image_state_renders_one_placeholder_per_image(vision_compiler, payload):
+    payload["state"] = _image_state("http://example.com/one.png", "data:image/png;base64,AAAA")
+    prepared = vision_compiler.prepare(SystemOneRequest.model_validate(payload))
+    assert prepared.image_data == [
+        "http://example.com/one.png",
+        "data:image/png;base64,AAAA",
+    ]
+    prefix = vision_compiler.tokenizer.decode(prepared.prefix_ids)
+    # Exactly one placeholder per image: SGLang silently drops the image when a
+    # placeholder is missing, and errors when it is pre-expanded.
+    run = "<|vision_start|><|image_pad|><|vision_end|>"
+    assert prefix.count(run) == 2
+    assert prefix.count("<|image_pad|>") == 2
+    # The URL itself must not be tokenized into the prompt.
+    assert "example.com" not in prefix
+    for branch in prepared.branches:
+        assert prepared.prefix_ids == branch.input_ids[: len(prepared.prefix_ids)]
+
+
+def test_text_only_state_sends_no_image_data(compiler, payload):
+    prepared = compiler.prepare(SystemOneRequest.model_validate(payload))
+    assert prepared.image_data == []
+
+
+def test_images_rejected_when_model_has_no_vision_tokens(compiler, payload):
+    # The default fixture tokenizer mirrors a text-only checkpoint.
+    payload["state"] = _image_state("http://example.com/one.png")
+    with pytest.raises(ValueError, match="cannot evaluate images"):
+        compiler.prepare(SystemOneRequest.model_validate(payload))
+
+
+def test_image_count_limit_is_enforced(vision_compiler, payload):
+    payload["state"] = _image_state(*[f"http://example.com/{i}.png" for i in range(5)])
+    with pytest.raises(ValueError, match="allows 4"):
+        vision_compiler.prepare(SystemOneRequest.model_validate(payload))
+
+
+def test_image_state_does_not_disturb_the_label_readout(vision_compiler, payload):
+    payload["state"] = _image_state("http://example.com/one.png")
+    prepared = vision_compiler.prepare(SystemOneRequest.model_validate(payload))
+    for branch in prepared.branches:
+        assert len(branch.label_ids) == len(branch.option_keys)
+        assert all(isinstance(token_id, int) for token_id in branch.label_ids)
 
 
 def test_all_answer_labels_are_distinct_single_tokens(compiler):

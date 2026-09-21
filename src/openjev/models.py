@@ -1,4 +1,4 @@
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
@@ -9,6 +9,46 @@ Content = str | dict[str, JsonValue] | list[JsonValue]
 
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
+
+
+class TextPart(StrictModel):
+    type: Literal["text"]
+    text: str
+
+
+class ImageUrl(StrictModel):
+    url: str = Field(min_length=1)
+
+
+class ImagePart(StrictModel):
+    """An image inside a chat message's content list.
+
+    Only the OpenAI-style `{"type": "image_url", "image_url": {"url": ...}}` shape is
+    accepted. Qwen's chat template matches on the literal string `image_url`, so that
+    key name must stay exactly this. The URL may be an `http(s)://` URL or a
+    `data:image/...;base64,...` payload; SGLang loads either form itself.
+    """
+
+    type: Literal["image_url"]
+    image_url: ImageUrl
+
+
+ContentPart = Annotated[TextPart | ImagePart, Field(discriminator="type")]
+
+
+def image_urls(content: Any) -> list[str]:
+    """Every image URL inside a message content list, in model-visible order."""
+    if not isinstance(content, list):
+        return []
+    return [
+        part["image_url"]["url"]
+        for part in content
+        if isinstance(part, dict)
+        and part.get("type") == "image_url"
+        and isinstance(part.get("image_url"), dict)
+        and isinstance(part["image_url"].get("url"), str)
+        and part["image_url"]["url"]
+    ]
 
 
 class NoulCriteria(StrictModel):
@@ -246,6 +286,12 @@ class LimitsResponse(StrictModel):
     max_concurrent_requests: int = Field(
         description="Maximum active evaluations per API container. Additional requests return 529."
     )
+    max_images: int = Field(
+        description=(
+            "Maximum images per request's state. 0 means this deployment cannot evaluate "
+            "images; such requests return 422."
+        )
+    )
 
 
 class ErrorDetail(StrictModel):
@@ -254,3 +300,4 @@ class ErrorDetail(StrictModel):
 
 class ErrorResponse(StrictModel):
     error: ErrorDetail
+
