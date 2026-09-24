@@ -87,13 +87,15 @@ curl "$OPENJEV_URL/v1/systemone" \
 
 Or use `curl "$OPENJEV_URL/v1/systemone" -H 'Content-Type: application/json' --data-binary @examples/request.json`.
 
-`state` and `instructions` accept strings, JSON objects, or arrays. A state that is
-a list of chat messages, or exactly `{"messages": [...]}`, is rendered using the
-model's native chat template. Original roles and message objects are retained;
-the classification question becomes an additional user turn, even after another
-user turn. Other structured state is serialized intact into a user message.
-Objects containing `messages` plus additional fields are kept intact so metadata
-isn't silently discarded. Chat state supports text, not image/audio/video content.
+`state`, `instructions`, and criteria descriptions accept strings, JSON objects, or
+arrays. Criteria descriptions may also be `null`, in which case the option label is
+shown to the model. Structured criteria are serialized as compact JSON. A state that
+is a list of chat messages, or exactly `{"messages": [...]}`, is rendered using the
+model's native chat template. Original roles and message objects are retained; the
+classification question becomes an additional user turn, even after another user
+turn. Other structured state is serialized intact into a user message. Objects
+containing `messages` plus additional fields are kept intact so metadata isn't
+silently discarded. Chat state supports text, not image/audio/video content.
 
 | Route                | Purpose                                                          |
 | -------------------- | ---------------------------------------------------------------- |

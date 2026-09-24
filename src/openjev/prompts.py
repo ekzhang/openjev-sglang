@@ -48,8 +48,10 @@ def state_messages(state: Content) -> list[dict[str, Any]]:
     return [{"role": "user", "content": serialize(state)}]
 
 
-def options(question: Question) -> list[tuple[str, str | None]]:
+def options(question: Question) -> list[tuple[str, Content | None]]:
     if isinstance(question, NoulQuestion):
+        if question.criteria is None:
+            return [("true", None), ("false", None)]
         return [("true", question.criteria.yes), ("false", question.criteria.no)]
     if isinstance(question, ChoiceQuestion):
         return list(question.criteria.items())
@@ -131,7 +133,8 @@ class PromptCompiler:
             for (option, description), (label, _) in zip(choices, labels, strict=True):
                 # Keys are hidden unless a null description needs the name as its meaning.
                 # Indent multiline descriptions to keep each generated label distinct.
-                text = (option if description is None else description).replace("\n", "\n   ")
+                text = option if description is None else serialize(description)
+                text = text.replace("\n", "\n   ")
                 lines.append(f"{label}: {text}")
             suffix = "\n".join(lines) + ending + "Answer:\n"
             # The prefix ends with two newlines and suffix starts with 'Question:'.

@@ -86,6 +86,58 @@ def test_only_null_descriptions_fall_back_to_option_names(compiler, payload):
     assert "Hidden key" not in prompt and "Also hidden" not in prompt
 
 
+def test_structured_criteria_are_serialized_for_every_question_type(compiler, payload):
+    payload["questions"] = {
+        "binary": {
+            "type": "noul",
+            "criteria": {
+                "true": {"meaning": "Matches", "examples": ["alpha", "beta"]},
+                "false": ["Different", {"reason": "No overlap"}],
+            },
+        },
+        "choice": {
+            "type": "choice",
+            "criteria": {
+                "hidden-object-key": {"meaning": "Object option"},
+                "hidden-array-key": ["Array option", {"rank": 2}],
+            },
+        },
+        "score": {
+            "type": "score",
+            "criteria": [{"level": "Low"}, ["High", {"threshold": 10}]],
+        },
+    }
+
+    branches = {
+        branch.question_id: compiler.tokenizer.decode(branch.input_ids)
+        for branch in compiler.prepare(SystemOneRequest.model_validate(payload)).branches
+    }
+
+    assert 'A: {"meaning":"Matches","examples":["alpha","beta"]}' in branches["binary"]
+    assert 'B: ["Different",{"reason":"No overlap"}]' in branches["binary"]
+    assert 'A: {"meaning":"Object option"}' in branches["choice"]
+    assert 'B: ["Array option",{"rank":2}]' in branches["choice"]
+    assert "hidden-object-key" not in branches["choice"]
+    assert "hidden-array-key" not in branches["choice"]
+    assert 'A: {"level":"Low"}' in branches["score"]
+    assert 'B: ["High",{"threshold":10}]' in branches["score"]
+
+
+def test_null_noul_and_score_descriptions_fall_back_to_labels(compiler, payload):
+    payload["questions"] = {
+        "noul": {"type": "noul", "criteria": None},
+        "score": {"type": "score", "criteria": [None, None]},
+    }
+
+    branches = {
+        branch.question_id: compiler.tokenizer.decode(branch.input_ids)
+        for branch in compiler.prepare(SystemOneRequest.model_validate(payload)).branches
+    }
+
+    assert "A: true\nB: false" in branches["noul"]
+    assert "A: 0\nB: 1" in branches["score"]
+
+
 def test_missing_instructions_falls_back_to_default(compiler, payload):
     del payload["questions"]["yes"]["instructions"]
     branch = compiler.prepare(SystemOneRequest.model_validate(payload)).branches[0]

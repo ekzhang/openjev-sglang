@@ -12,8 +12,12 @@ class StrictModel(BaseModel):
 
 
 class NoulCriteria(StrictModel):
-    yes: str = Field(default="Yes", alias="true", description="Meaning of a positive answer.")
-    no: str = Field(default="No", alias="false", description="Meaning of a negative answer.")
+    yes: Content | None = Field(
+        default="Yes", alias="true", description="Meaning of a positive answer."
+    )
+    no: Content | None = Field(
+        default="No", alias="false", description="Meaning of a negative answer."
+    )
 
 
 class NoulQuestion(StrictModel):
@@ -21,7 +25,7 @@ class NoulQuestion(StrictModel):
     instructions: Content | None = Field(
         default=None, description="The yes/no question or evaluation instructions."
     )
-    criteria: NoulCriteria = Field(
+    criteria: NoulCriteria | None = Field(
         default_factory=NoulCriteria, description="Optional definitions of true and false."
     )
 
@@ -31,7 +35,7 @@ class ChoiceQuestion(StrictModel):
     instructions: Content | None = Field(
         default=None, description="Question or instructions for choosing one option."
     )
-    criteria: dict[str, str | None] = Field(
+    criteria: dict[str, Content | None] = Field(
         min_length=2,
         max_length=MAX_ANSWERS,
         description=(
@@ -46,7 +50,7 @@ class ScoreQuestion(StrictModel):
     instructions: Content | None = Field(
         default=None, description="Question or instructions for applying the rubric."
     )
-    criteria: list[str] = Field(
+    criteria: list[Content | None] = Field(
         min_length=2,
         max_length=MAX_ANSWERS,
         description=(
@@ -130,7 +134,7 @@ class ScoreAnswer(StrictModel):
         ge=0,
         description="Expected zero-based rubric index, between 0 and number of levels minus 1.",
     )
-    legend: dict[str, str] = Field(
+    legend: dict[str, Content | None] = Field(
         description="Stringified zero-based index mapped to each rubric description."
     )
     probabilities: dict[str, float] = Field(
