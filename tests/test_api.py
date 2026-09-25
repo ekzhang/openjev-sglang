@@ -104,6 +104,31 @@ async def test_choice_accepts_nullable_descriptions(api, payload, description):
     assert response.json()["answers"]["team"]["probabilities"].keys() == {"billing", "technical"}
 
 
+async def test_structured_criteria_are_accepted_and_score_legend_is_preserved(api, payload):
+    client, calls, _ = api
+    score_criteria = [{"level": "Low"}, ["High", {"threshold": 10}]]
+    payload["questions"] = {
+        "binary": {
+            "type": "noul",
+            "criteria": {"true": {"meaning": "Match"}, "false": ["Different"]},
+        },
+        "choice": {
+            "type": "choice",
+            "criteria": {"object": {"meaning": "Object"}, "array": ["Array"]},
+        },
+        "score": {"type": "score", "criteria": score_criteria},
+    }
+
+    response = await client.post("/v1/systemone", json=payload)
+
+    assert response.status_code == 200, response.text
+    assert len(calls) == 4
+    assert response.json()["answers"]["score"]["legend"] == {
+        "0": score_criteria[0],
+        "1": score_criteria[1],
+    }
+
+
 async def test_question_without_instructions_is_accepted(api, payload):
     client, calls, _ = api
     del payload["questions"]["yes"]["instructions"]
