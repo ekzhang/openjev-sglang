@@ -43,9 +43,10 @@ class EvaluationService:
             raise RequestError("Server is at capacity; retry shortly", 529)
         self.active += 1
         try:
-            async with asyncio.timeout(self.settings.request_timeout):
-                return await self._evaluate(request)
-        except TimeoutError as exc:
+            return await asyncio.wait_for(
+                self._evaluate(request), self.settings.request_timeout
+            )
+        except asyncio.TimeoutError as exc:
             raise BackendError("Evaluation deadline exceeded", 504) from exc
         finally:
             self.active -= 1

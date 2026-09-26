@@ -1,7 +1,7 @@
 """Run manifests and predictions, shared by collectors and offline reports."""
 
 import json
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 
 def read_jsonl(path, *, missing_ok=False):
@@ -17,7 +17,7 @@ def save_manifest(path, settings, *, mutable=()):
         if any(previous.get(k) != v for k, v in settings.items() if k not in mutable):
             raise ValueError("Different run parameters; choose a new output directory")
         return previous
-    manifest = {**settings, "started_at": datetime.now(UTC).isoformat()}
+    manifest = {**settings, "started_at": datetime.now(timezone.utc).isoformat()}
     path.write_text(json.dumps(manifest, indent=2) + "\n")
     return manifest
 
