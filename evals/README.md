@@ -7,7 +7,7 @@ Markdown, JSON metrics, and plots without calling a model or reading an API key.
 
 | Evaluation | Collect | Report from saved data |
 |---|---|---|
-| BoolQ calibration | `boolq.py` | `report_boolq.py` |
+| BoolQ calibration | `boolq.py` | `report_boolq.py`, `fit_temperature.py` |
 | Jev/OpenJev MMLU-Pro | `mmlu_pro.py` | `report_mmlu_pro.py`, `compare_mmlu_pro.py` |
 | Hosted Qwen3.8 MMLU-Pro | `mmlu_pro_openrouter.py` | `report_mmlu_pro_openrouter.py` |
 | Prompt variants in an existing container | `prompt_probe.py` | Metrics written by the probe |
@@ -24,6 +24,13 @@ Remote probe bodies remain self-contained so they run in the existing deployment
 Run all 3,270 labeled development examples against OpenJev and optionally real Jev.
 These are standalone uv scripts: their dependencies stay separate from the API's
 environment. No server redeployment is needed to run an evaluation.
+
+`fit_temperature.py` fits the serving temperature (`OPENJEV_TEMPERATURE`)
+from a saved BoolQ run by NLL, then prints an ECE table over a temperature
+grid — for the fit set and any `--cross-check` runs from other domains.
+Cross-check before deploying: a temperature fitted on one domain (BoolQ
+reading comprehension) can *degrade* calibration on another (e.g. judging
+workloads); prefer the value that improves every set at once.
 
 ```sh
 # OpenJev: 16 concurrent requests, with a short pause per worker.
