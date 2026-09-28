@@ -28,9 +28,12 @@ environment. No server redeployment is needed to run an evaluation.
 `fit_temperature.py` fits the serving temperature (`OPENJEV_TEMPERATURE`)
 from a saved BoolQ run by NLL, then prints an ECE table over a temperature
 grid — for the fit set and any `--cross-check` runs from other domains.
-Cross-check before deploying: a temperature fitted on one domain (BoolQ
-reading comprehension) can *degrade* calibration on another (e.g. judging
-workloads); prefer the value that improves every set at once.
+BoolQ is binary, so its column rescales `logit(p)`. A cross-check row with a
+full `probs` dict uses the serving transform, `p_i ** (1/T)` renormalized.
+Rescaling only `logit(max p)` is a different function and understates ECE on
+multi-class questions. Cross-check before deploying: a temperature fitted on
+one domain (BoolQ reading comprehension) can *degrade* calibration on another
+(e.g. judging workloads); prefer the value that improves every set at once.
 
 ```sh
 # OpenJev: 16 concurrent requests, with a short pause per worker.

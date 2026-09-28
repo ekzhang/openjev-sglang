@@ -36,16 +36,30 @@ def load_boolq_predictions(path: Path) -> list[tuple[float, float]]:
     return pairs
 
 
-def load_confidence_pairs(path: Path) -> list[tuple[float, float]]:
-    """(confidence, outcome) pairs from a generic {probs, correct} jsonl run."""
-    pairs = []
+def load_distributions(path: Path) -> list[tuple[dict[str, float], float]]:
+    """Full label distributions from a {probs, correct} jsonl run.
+
+    Cross-checks must keep every label. OPENJEV_TEMPERATURE divides the label
+    logits before the softmax, which on a saved distribution is p_i ** (1/T)
+    renormalized. Rescaling only logit(max p) is a different transform and
+    understates ECE on multi-class questions.
+    """
+    rows = []
     for line in path.read_text(encoding="utf-8").splitlines():
         row = json.loads(line)
         probs = row.get("probs")
         if not isinstance(probs, dict) or not probs or row.get("correct") is None:
             continue
-        pairs.append((min(max(max(probs.values()), 1e-9), 1 - 1e-9), 1.0 if row["correct"] else 0.0))
-    return pairs
+        rows.append((dict(probs), 1.0 if row["correct"] else 0.0))
+    return rows
+
+
+def top_at(probs: dict[str, float], temperature: float) -> float:
+    weights = [max(value, 0.0) ** (1.0 / temperature) for value in probs.values()]
+    total = math.fsum(weights)
+    if total <= 0:
+        raise ValueError("probability mass is not positive")
+    return max(weight / total for weight in weights)
 
 
 def nll(pairs: list[tuple[float, float]], temperature: float) -> float:
@@ -59,6 +73,16 @@ def nll(pairs: list[tuple[float, float]], temperature: float) -> float:
 
 def ece(pairs: list[tuple[float, float]], temperature: float) -> float:
     scaled = [(sigmoid(logit(p) / temperature), y) for p, y in pairs]
+    n = len(scaled)
+    return sum(
+        g["count"] / n * abs(g["mean_probability"] - g["observed_frequency"])
+        for g in reliability([p for p, _ in scaled], [y for _, y in scaled])
+        if g["count"]
+    )
+
+
+def ece_distributions(rows: list[tuple[dict[str, float], float]], temperature: float) -> float:
+    scaled = [(top_at(probs, temperature), y) for probs, y in rows]
     n = len(scaled)
     return sum(
         g["count"] / n * abs(g["mean_probability"] - g["observed_frequency"])
@@ -90,11 +114,12 @@ def main() -> None:
     args = parser.parse_args()
 
     primary = load_boolq_predictions(args.run)
-    extras = {path: load_confidence_pairs(path) for path in args.cross_check}
+    extras = {path: load_distributions(path) for path in args.cross_check}
     temperature = fit(primary)
 
     print(f"fit set: {args.run} (n={len(primary)})")
     print(f"fitted temperature (NLL): {temperature:.3f}")
+    print("Cross-check ECE uses softmax temperature, p_i ** (1/T), not logit(max p)/T.")
     print()
     header = f"{'T':>6}  {'fit-set ECE':>11}"
     for path in extras:
@@ -104,7 +129,7 @@ def main() -> None:
     for t in grid:
         row = f"{t:>6.2f}  {ece(primary, t):>11.4f}"
         for path, pairs in extras.items():
-            row += f"  {ece(pairs, t):>14.4f}"
+            row += f"  {ece_distributions(pairs, t):>14.4f}"
         print(row)
     print()
     print("Serving: set OPENJEV_TEMPERATURE in the server environment.")
