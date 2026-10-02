@@ -90,15 +90,39 @@ curl "$OPENJEV_URL/v1/systemone" \
 
 Or use `curl "$OPENJEV_URL/v1/systemone" -H 'Content-Type: application/json' --data-binary @examples/request.json`.
 
-`state`, `instructions`, and criteria descriptions accept strings, JSON objects, or
-arrays. Criteria descriptions may also be `null`, in which case the option label is
-shown to the model. Structured criteria are serialized as compact JSON. A state that
-is a list of chat messages, or exactly `{"messages": [...]}`, is rendered using the
-model's native chat template. Original roles and message objects are retained; the
-classification question becomes an additional user turn, even after another user
-turn. Other structured state is serialized intact into a user message. Objects
-containing `messages` plus additional fields are kept intact so metadata isn't
-silently discarded. Chat state supports text, not image/audio/video content.
+`state` and `instructions` accept strings, JSON objects, or arrays. A state that is
+a list of chat messages, or exactly `{"messages": [...]}`, is rendered using the
+model's native chat template. Original roles and message objects are retained;
+the classification question becomes an additional user turn, even after another
+user turn. Other structured state is serialized intact into a user message.
+Objects containing `messages` plus additional fields are kept intact so metadata
+isn't silently discarded. Chat state supports text and `image_url` parts, not
+audio/video content.
+
+A `user` message's `content` may also be a list of parts, mixing text and images.
+This follows the OpenAI image shape, which is what Qwen's chat template matches on,
+so each part becomes exactly one position in the prompt and can be used to describe
+several pictures:
+
+```json
+{"role": "user", "content": [
+  {"type": "text", "text": "Is the signature present and legible?"},
+  {"type": "image_url", "image_url": {"url": "https://example.com/scan.png"}}
+]}
+```
+
+`url` accepts an `http(s)://` URL or a `data:image/...;base64,...` payload. Images
+belong to the request's state and are shared by every question, so they are sent on
+the cache-warming prefill and on each branch. Image state needs a vision checkpoint
+(for example Qwen3-VL) and a nonzero `OPENJEV_MAX_IMAGES`; a text-only deployment
+returns **422** explaining that the model cannot evaluate images. Because images
+expand to many tokens, expect a heavier shared prefix and reduce
+`OPENJEV_MAX_TOTAL_INPUT_TOKENS` when 64 branches each carry pictures.
+
+The image path reuses SGLang's `/generate` unchanged: it accepts `image_data`
+alongside `input_ids`, decodes the ids back to text for its multimodal processor,
+expands the one `<|image_pad|>` placeholder per image, and then restores the
+caller's original tokens (`SGLANG_MM_AVOID_RETOKENIZE`, on by default).
 
 | Route                | Purpose                                                          |
 | -------------------- | ---------------------------------------------------------------- |
@@ -188,6 +212,7 @@ All settings can be provided as `OPENJEV_*` environment variables; see
 | `OPENJEV_MAX_TOTAL_INPUT_TOKENS`  | `262144`                                                |
 | `OPENJEV_MAX_CONCURRENT_REQUESTS` | `16`                                                    |
 | `OPENJEV_MAX_CONCURRENT_BRANCHES` | `64`                                                    |
+| `OPENJEV_MAX_IMAGES`              | `0` (text only); images need a vision model            |
 | `OPENJEV_REQUEST_TIMEOUT`         | `120` seconds                                           |
 | `OPENJEV_TEMPERATURE`             | `1.0`, applied during label normalization               |
 | `OPENJEV_API_KEY`                 | Unset; optional Bearer authentication for the API       |

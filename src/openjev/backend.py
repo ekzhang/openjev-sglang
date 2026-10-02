@@ -36,7 +36,12 @@ class SGLangClient:
         except httpx.HTTPError:
             return False
 
-    async def generate(self, input_ids: list[int], label_ids: list[int] | None = None):
+    async def generate(
+        self,
+        input_ids: list[int],
+        label_ids: list[int] | None = None,
+        image_data: list[str] | None = None,
+    ):
         rid = f"openjev-{uuid4().hex}"
         payload: dict[str, Any] = {
             "rid": rid,
@@ -58,6 +63,13 @@ class SGLangClient:
             "top_logprobs_num": 0,
             "return_text_in_logprobs": False,
         }
+        if image_data:
+            # SGLang accepts image_data alongside input_ids: it decodes the ids back to
+            # text for the HF processor, expands the single <|image_pad|> placeholder per
+            # image, then restores the caller's original tokens
+            # (SGLANG_MM_AVOID_RETOKENIZE, default on). Exactly one placeholder per image
+            # is required, so PromptCompiler verifies the render before we get here.
+            payload["image_data"] = image_data
         async with self.slots:
             try:
                 response = await self.client.post(

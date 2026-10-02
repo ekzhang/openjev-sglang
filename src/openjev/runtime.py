@@ -21,6 +21,17 @@ def backend_command(
     forbidden = {"--disable-radix-cache", "--disable-cuda-graph", "--disable-piecewise-cuda-graph"}
     if any(arg.split("=")[0] in forbidden for arg in extra):
         raise ValueError("OpenJev requires radix caching and CUDA graphs")
+    profile = PROFILES[settings.profile]
+    moe_runner_backend = (
+        settings.moe_runner_backend or profile.moe_runner_backend or "flashinfer_cutlass"
+    )
+    mem_fraction_static = (
+        settings.mem_fraction_static
+        if settings.mem_fraction_static is not None
+        else (profile.mem_fraction_static if profile.mem_fraction_static is not None else 0.8)
+    )
+    attention_backend = settings.attention_backend or profile.attention_backend or "trtllm_mha"
+    kv_cache_dtype = settings.kv_cache_dtype or profile.kv_cache_dtype or "fp8_e4m3"
     command = [
         settings.sglang_python,
         "-m",
@@ -36,26 +47,45 @@ def backend_command(
         "--context-length",
         str(settings.max_input_tokens),
         "--mem-fraction-static",
-        "0.8",
+        str(mem_fraction_static),
         "--moe-runner-backend",
-        "flashinfer_cutlass",
-        "--mamba-radix-cache-strategy",
-        "extra_buffer",
+        moe_runner_backend,
         "--cuda-graph-backend-prefill",
         "breakable",
         "--cuda-graph-max-bs-decode",
         "64",
         "--enable-metrics",
+        "--attention-backend",
+        attention_backend,
+        "--kv-cache-dtype",
+        kv_cache_dtype,
     ]
-    command.extend(PROFILES[settings.profile].backend_args)
+    # Only hybrid (mamba/linear-attention) models have a mamba radix cache; passing
+    # the flag for a plain attention model aborts on the first prefill.
+    if profile.mamba_radix_cache_strategy:
+        command.extend(["--mamba-radix-cache-strategy", profile.mamba_radix_cache_strategy])
+    command.extend(profile.extra_backend_args)
     if settings.model_revision:
         command.extend(["--revision", settings.model_revision])
     if tokenizer_path:
         command.extend(["--tokenizer-path", tokenizer_path])
     if settings.backend_api_key:
         command.extend(["--api-key", settings.backend_api_key.get_secret_value()])
-    return command + extra
-
+    # Let caller-supplied flags win over the built-in defaults instead of
+    # producing a conflicting duplicate. Drop a default flag *and* its value so
+    # no orphaned value is left behind as a stray positional argument.
+    flags = {arg.split("=")[0] for arg in extra if arg.startswith("--")}
+    pruned: list[str] = []
+    skip_value = False
+    for arg in command:
+        if skip_value:
+            skip_value = False
+            continue
+        if arg.startswith("--") and arg.split("=")[0] in flags:
+            skip_value = "=" not in arg
+            continue
+        pruned.append(arg)
+    return pruned + extra
 
 @asynccontextmanager
 async def backend_process(settings: Settings, enabled: bool, extra: list[str]):
