@@ -10,7 +10,7 @@ import hashlib
 import json
 import math
 import time
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
@@ -90,7 +90,7 @@ async def collect(args):
         events.write(
             json.dumps(
                 {
-                    "started_at": datetime.now(UTC).isoformat(),
+                    "started_at": datetime.now(timezone.utc).isoformat(),
                     "concurrency": args.concurrency,
                     "delay_per_worker_seconds": args.delay,
                     "resumed_rows": len(done),
